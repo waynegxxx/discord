@@ -1,0 +1,14 @@
+{
+  "feishu_webhook": "https://open.feishu.cn/open-apis/bot/v2/hook/xxxxxxxxxxxxx",
+  "rss_sources": [
+    {
+      "name": "示例网站1",
+      "url": "https://example.com/rss"
+    },
+    {
+      "name": "示例网站2",
+      "url": "https://another-example.com/feed"
+    }
+  ]
+}
+
