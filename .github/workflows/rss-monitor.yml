@@ -9,6 +9,8 @@ on:
 jobs:
   monitor:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write  # 允许提交文件
     
     steps:
     - name: 检出代码
@@ -26,22 +28,27 @@ jobs:
     - name: 创建配置文件
       env:
         DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
+        FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
         RSS_SOURCES: ${{ secrets.RSS_SOURCES }}
       run: |
-        cat > config.json << EOF
-        {
-          "discord_webhook": "$DISCORD_WEBHOOK",
-          "rss_sources": $RSS_SOURCES
-        }
-        EOF
+        python create_config_from_secrets.py
         
     - name: 运行RSS监控
       run: python rss_monitor.py
       
     - name: 提交状态文件（如果有更新）
+      continue-on-error: true  # 即使失败也不影响整个工作流
       run: |
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add rss_state.json
-        git diff --staged --quiet || git commit -m "更新RSS推送状态 [skip ci]"
-        git push || true
+        if [ -f rss_state.json ]; then
+          git config --local user.email "action@github.com"
+          git config --local user.name "GitHub Action"
+          git add rss_state.json
+          if ! git diff --staged --quiet; then
+            git commit -m "更新RSS推送状态 [skip ci]"
+            git push
+          else
+            echo "没有状态文件更新，跳过提交"
+          fi
+        else
+          echo "rss_state.json 文件不存在，跳过提交"
+        fi

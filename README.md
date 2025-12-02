@@ -99,9 +99,21 @@ python rss_monitor.py
 
 ## 获取RSS链接
 
-可以使用以下工具获取RSS链接：
-- RSSHub Radar 浏览器扩展
-- 网站通常的RSS地址格式：`https://example.com/feed` 或 `https://example.com/rss`
+详细指南请查看：[RSS获取指南.md](RSS获取指南.md)
+
+**快速方法**：
+1. **使用RSSHub Radar浏览器扩展**（推荐）
+   - Chrome: https://chrome.google.com/webstore/detail/rsshub-radar/kefjpfngnndepjbopdmoebkipbgkggaa
+   - Firefox: https://addons.mozilla.org/firefox/addon/rsshub-radar/
+   - 安装后访问网站，点击扩展图标即可自动检测RSS链接
+
+2. **手动查找**
+   - 查看网页源代码，搜索 `rss` 或 `feed`
+   - 尝试常见格式：`https://网站域名/feed` 或 `https://网站域名/rss`
+
+3. **使用RSSHub**（适用于不支持RSS的网站）
+   - 访问：https://rsshub.app/
+   - 为各种网站和平台生成RSS源
 
 ## 获取Discord Webhook地址
 
