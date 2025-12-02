@@ -83,7 +83,7 @@ git push -u origin main
 
 1. 访问：https://github.com/waynegxxx/discord/actions
 2. 应该能看到 "RSS监控推送" 工作流
-3. 工作流会自动每30分钟运行一次
+3. 工作流会自动每5分钟运行一次
 4. 也可以点击 "Run workflow" 手动触发
 
 ## 📝 本地测试（可选）

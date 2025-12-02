@@ -48,7 +48,10 @@ python rss_monitor.py
    
    Windows可以使用任务计划程序，Linux/Mac可以使用cron：
 ```bash
-# 每30分钟运行一次
+# 每5分钟运行一次
+*/5 * * * * cd /path/to/project && python rss_monitor.py
+
+# 或者每30分钟运行一次（更节省资源）
 */30 * * * * cd /path/to/project && python rss_monitor.py
 ```
 
@@ -75,7 +78,7 @@ python rss_monitor.py
 
 2. **推送代码到GitHub**
    
-   将代码推送到GitHub后，GitHub Actions会自动每30分钟运行一次。
+   将代码推送到GitHub后，GitHub Actions会自动每5分钟运行一次。
 
 3. **手动触发（可选）**
    
