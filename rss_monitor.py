@@ -94,43 +94,82 @@ class RSSMonitor:
     
     def fetch_rss(self, url: str) -> List[Dict]:
         """获取RSS源的最新文章"""
+        feed = None
+        original_feed = None
+        
         try:
-            # 先尝试直接解析
+            # 先尝试直接解析（feedparser会自动下载）
+            print(f"   正在获取RSS内容...")
             feed = feedparser.parse(url)
+            original_feed = feed
             
             # 如果解析失败且有实体错误，尝试修复
             if feed.bozo and feed.bozo_exception:
                 error_str = str(feed.bozo_exception)
                 if 'undefined entity' in error_str.lower():
                     print(f"⚠️ 检测到XML实体错误，尝试修复...")
-                    try:
-                        # 下载RSS内容
-                        response = requests.get(url, timeout=30, headers={
-                            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-                        })
-                        response.raise_for_status()
-                        xml_content = response.text
-                        
-                        # 修复XML实体
-                        fixed_xml = self.fix_xml_entities(xml_content)
-                        
-                        # 重新解析
-                        feed = feedparser.parse(fixed_xml)
-                        
-                        if feed.bozo and feed.bozo_exception:
-                            print(f"⚠️ 修复后仍有解析错误: {feed.bozo_exception}")
-                            # 即使有错误，也尝试提取内容
+                    fixed_success = False
+                    
+                    # 重试机制：最多尝试3次
+                    for attempt in range(1, 4):
+                        try:
+                            print(f"   尝试 {attempt}/3: 下载并修复RSS内容...")
+                            # 下载RSS内容（增加超时时间到60秒）
+                            response = requests.get(
+                                url, 
+                                timeout=(10, 60),  # (连接超时, 读取超时)
+                                headers={
+                                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                                }
+                            )
+                            response.raise_for_status()
+                            xml_content = response.text
+                            
+                            # 修复XML实体
+                            fixed_xml = self.fix_xml_entities(xml_content)
+                            
+                            # 重新解析
+                            feed = feedparser.parse(fixed_xml)
+                            
+                            if feed.bozo and feed.bozo_exception:
+                                print(f"   ⚠️ 修复后仍有解析错误: {feed.bozo_exception}")
+                                # 即使有错误，也尝试提取内容
+                            else:
+                                print(f"   ✅ XML实体修复成功")
+                                fixed_success = True
+                                break
+                        except requests.exceptions.Timeout as timeout_error:
+                            print(f"   ⚠️ 尝试 {attempt}/3 超时: {timeout_error}")
+                            if attempt < 3:
+                                wait_time = attempt * 5  # 递增等待时间
+                                print(f"   等待 {wait_time} 秒后重试...")
+                                time.sleep(wait_time)
+                            else:
+                                print(f"   ⚠️ 所有重试均超时，尝试使用原始解析结果")
+                        except Exception as fix_error:
+                            print(f"   ⚠️ 尝试 {attempt}/3 失败: {fix_error}")
+                            if attempt < 3:
+                                time.sleep(2)
+                            else:
+                                print(f"   ⚠️ 修复失败，尝试使用原始解析结果（可能仍能提取部分内容）")
+                    
+                    # 如果修复失败，检查原始feed是否有内容（feedparser即使有错误也能提取部分内容）
+                    if not fixed_success:
+                        if original_feed and hasattr(original_feed, 'entries') and original_feed.entries:
+                            feed = original_feed
+                            print(f"   ℹ️ 使用原始解析结果（找到 {len(original_feed.entries)} 篇文章）")
                         else:
-                            print(f"✅ XML实体修复成功")
-                    except Exception as fix_error:
-                        print(f"⚠️ 修复XML实体失败: {fix_error}")
-                        print(f"   原始错误: {feed.bozo_exception}")
+                            print(f"   ⚠️ 原始解析结果也没有文章，可能RSS源确实有问题")
                 else:
                     print(f"⚠️ RSS解析错误 ({url}): {feed.bozo_exception}")
+                    print(f"   尝试继续提取内容...")
             
-            # 检查是否有文章
+            # 检查是否有文章（即使有错误也尝试提取）
             if not hasattr(feed, 'entries') or not feed.entries:
                 print(f"⚠️ RSS源中没有文章条目")
+                # 如果有错误信息，显示更多细节
+                if feed.bozo and feed.bozo_exception:
+                    print(f"   错误详情: {feed.bozo_exception}")
                 return []
             
             articles = []
