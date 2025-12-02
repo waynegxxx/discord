@@ -268,6 +268,8 @@ class RSSMonitor:
                 return []
             
             articles = []
+            current_time = datetime.now()
+            
             for entry in feed.entries[:10]:  # 只取最新10条
                 # 清理标题和摘要中的HTML标签
                 title = entry.get('title', '无标题')
@@ -282,10 +284,46 @@ class RSSMonitor:
                     summary = re.sub(r'<[^>]+>', '', summary)
                     summary = html.unescape(summary).strip()
                 
+                # 解析发布时间
+                published_str = entry.get('published', '')
+                published_time = None
+                
+                if published_str:
+                    try:
+                        # feedparser返回的时间可能是各种格式
+                        # 优先使用feedparser解析好的时间元组（最准确）
+                        if hasattr(entry, 'published_parsed') and entry.published_parsed:
+                            # feedparser已经解析好的时间元组 (time.struct_time)
+                            import time as time_module
+                            # 转换为datetime对象（UTC时间）
+                            published_time = datetime(*entry.published_parsed[:6])
+                        else:
+                            # 如果没有parsed时间，尝试手动解析字符串
+                            try:
+                                from datetime import datetime as dt
+                                # 尝试解析feedparser常见格式: "Mon, 01 Jan 2024 00:00:00 +0000"
+                                date_str = published_str.split(' (')[0].split(' +')[0].split(' -')[0]
+                                published_time = dt.strptime(date_str.strip(), '%a, %d %b %Y %H:%M:%S')
+                            except:
+                                # 尝试其他格式
+                                try:
+                                    # ISO格式: "2024-01-01T00:00:00"
+                                    if 'T' in published_str:
+                                        published_time = dt.strptime(published_str[:19], '%Y-%m-%dT%H:%M:%S')
+                                    # 简单格式: "2024-01-01 00:00:00"
+                                    elif ' ' in published_str and len(published_str) >= 19:
+                                        published_time = dt.strptime(published_str[:19], '%Y-%m-%d %H:%M:%S')
+                                except:
+                                    pass
+                    except Exception as e:
+                        # 解析失败不影响，只是无法进行时间筛选
+                        published_time = None
+                
                 article = {
                     'title': title or '无标题',
                     'link': entry.get('link', ''),
-                    'published': entry.get('published', ''),
+                    'published': published_str,
+                    'published_time': published_time,  # 添加解析后的时间对象
                     'summary': summary[:200] if summary else '',  # 限制摘要长度
                     'source': url
                 }
@@ -709,11 +747,51 @@ class RSSMonitor:
                 print("   ⚠️ 未获取到文章，已发送错误通知")
                 continue
             
+            # 筛选10分钟内的新消息
+            current_time = datetime.now()
+            recent_articles = []
+            
             for article in articles:
+                published_time = article.get('published_time')
+                
+                # 检查发布时间是否在10分钟内
+                if published_time:
+                    try:
+                        # 计算时间差（秒）
+                        time_diff = (current_time - published_time).total_seconds()
+                        
+                        # 只推送10分钟内的消息（600秒）
+                        if time_diff >= 0 and time_diff <= 600:
+                            recent_articles.append(article)
+                            minutes_ago = int(time_diff / 60)
+                            seconds_ago = int(time_diff % 60)
+                            if minutes_ago > 0:
+                                print(f"   ✅ 10分钟内新文章: {article['title'][:50]}... (发布于 {minutes_ago} 分钟前)")
+                            else:
+                                print(f"   ✅ 10分钟内新文章: {article['title'][:50]}... (发布于 {seconds_ago} 秒前)")
+                        else:
+                            minutes_ago = int(time_diff / 60)
+                            if time_diff < 0:
+                                print(f"   ⏭️ 跳过未来文章: {article['title'][:50]}... (时间异常)")
+                            else:
+                                print(f"   ⏭️ 跳过旧文章: {article['title'][:50]}... (发布于 {minutes_ago} 分钟前)")
+                    except Exception as e:
+                        # 时间计算出错，默认推送（避免遗漏）
+                        print(f"   ⚠️ 时间计算失败，默认推送: {article['title'][:50]}... ({e})")
+                        recent_articles.append(article)
+                else:
+                    # 如果没有发布时间，默认推送（避免遗漏）
+                    print(f"   ⚠️ 无法解析发布时间，默认推送: {article['title'][:50]}...")
+                    recent_articles.append(article)
+            
+            print(f"   筛选后: {len(recent_articles)} 条10分钟内的新消息（共获取 {len(articles)} 条）")
+            
+            # 只推送10分钟内的新消息
+            for article in recent_articles:
                 article_id = self.get_article_id(article)
                 source_key = f"{url}_{article_id}"
                 
-                # 检查是否已推送
+                # 检查是否已推送（去重）
                 if source_key not in self.state:
                     print(f"📬 发现新文章: {article['title'][:50]}...")
                     
