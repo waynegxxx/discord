@@ -395,7 +395,7 @@ class RSSMonitor:
             return False
     
     def send_to_discord(self, article: Dict, source_name: str = ""):
-        """发送消息到Discord"""
+        """发送消息到Discord（使用纯文本格式，避免Embed格式问题）"""
         webhook_url = self.config.get('discord_webhook')
         if not webhook_url:
             print("❌ 未配置Discord Webhook地址")
@@ -407,107 +407,71 @@ class RSSMonitor:
         summary = article.get('summary', '')
         published = article.get('published', '')
         
-        # 清理标题，移除可能导致问题的字符
+        # 清理标题，移除HTML标签
         if title:
-            # 移除HTML标签
             title = re.sub(r'<[^>]+>', '', title)
             title = html.unescape(title).strip()
-            # 限制长度并确保不为空
-            title = title[:256] if title else "无标题"
         else:
             title = "无标题"
         
-        # 清理摘要，移除HTML标签和特殊字符
+        # 清理摘要，移除HTML标签
         if summary:
             summary = re.sub(r'<[^>]+>', '', summary)
-            summary = html.unescape(summary).strip()[:500]  # Discord限制2000字符，摘要限制500
+            summary = html.unescape(summary).strip()
         
-        # 处理timestamp格式（Discord需要严格的ISO 8601格式）
-        timestamp = None
+        # 构建纯文本消息（使用Discord Markdown格式）
+        # Discord content字段限制2000字符
+        content_parts = []
+        
+        # 标题（加粗）
+        if title:
+            # 转义Discord特殊字符，避免格式问题
+            title_escaped = title.replace('*', '\\*').replace('_', '\\_').replace('`', '\\`').replace('~', '\\~')
+            content_parts.append(f"**{title_escaped[:1900]}**")  # 留出空间给其他内容
+        
+        # 摘要
+        if summary:
+            summary_escaped = summary.replace('*', '\\*').replace('_', '\\_').replace('`', '\\`').replace('~', '\\~')
+            # 计算剩余空间
+            current_length = sum(len(part) for part in content_parts) + len('\n') * (len(content_parts) - 1)
+            remaining = 2000 - current_length - 50  # 留出空间给链接等
+            if remaining > 0:
+                content_parts.append(f"\n{summary_escaped[:remaining]}")
+        
+        # 链接
+        if link:
+            content_parts.append(f"\n🔗 {link}")
+        
+        # 发布时间（如果有）
         if published:
+            # 简单格式化日期
             try:
-                # feedparser返回的日期可能是各种格式，需要转换
-                # Discord要求ISO 8601格式，例如：2023-01-01T00:00:00.000Z
-                if isinstance(published, str):
-                    # 尝试解析feedparser的日期格式
-                    # feedparser通常返回类似 "Mon, 01 Jan 2023 00:00:00 +0000" 的格式
-                    from datetime import datetime as dt
-                    # 尝试解析常见格式
-                    try:
-                        # 尝试解析feedparser格式
-                        parsed_date = dt.strptime(published.split(' (')[0].split(' +')[0].split(' -')[0], 
-                                                 '%a, %d %b %Y %H:%M:%S')
-                        # 转换为ISO 8601格式（带Z表示UTC）
-                        timestamp = parsed_date.strftime('%Y-%m-%dT%H:%M:%S.000Z')
-                    except:
-                        # 如果已经是ISO格式，直接使用
-                        if 'T' in published and ('Z' in published or '+' in published or published.count('-') >= 3):
-                            # 看起来像ISO格式
-                            timestamp = published
-                        else:
-                            # 格式不正确，不添加timestamp
-                            timestamp = None
-            except Exception as e:
-                # 解析失败，不添加timestamp
-                timestamp = None
+                # 尝试提取日期部分
+                date_str = published.split(' (')[0].split(' +')[0].split(' -')[0]
+                content_parts.append(f"\n📅 {date_str}")
+            except:
+                pass
         
-        # 构建Discord Embed消息（严格按照Discord API规范）
-        embed = {
-            "title": title[:256],  # 确保不超过256字符
-            "color": 0x5865F2,  # Discord蓝色
-            "footer": {
-                "text": (source_name if source_name else "RSS监控")[:2048]  # footer text限制2048字符
-            }
-        }
+        # 来源（如果有）
+        if source_name:
+            content_parts.append(f"\n📰 来源: {source_name}")
         
-        # 只添加非空且有效的字段
-        if summary and summary.strip():
-            # 确保description不超过2000字符
-            embed["description"] = summary[:2000]
+        # 组合所有内容
+        content = '\n'.join(content_parts)
         
-        # URL字段：如果设置了url，就不能在fields中重复
-        # 为了更好的显示，我们只在fields中显示链接，不使用url字段
-        # （因为url字段会作为标题的链接，可能和fields中的链接重复）
+        # 确保不超过2000字符限制
+        if len(content) > 2000:
+            content = content[:1997] + "..."
         
-        # 添加链接到fields（更清晰的显示）
-        if link and link.startswith(('http://', 'https://')):
-            # 确保field value不超过1024字符
-            link_value = link[:1024]
-            if "fields" not in embed:
-                embed["fields"] = []
-            embed["fields"].append({
-                "name": "🔗 原文链接"[:256],  # field name限制256字符
-                "value": link_value[:1024],  # field value限制1024字符
-                "inline": False
-            })
-        
-        # 只添加格式正确的timestamp
-        if timestamp and isinstance(timestamp, str) and len(timestamp) > 0:
-            # 验证timestamp格式（简单检查）
-            if 'T' in timestamp and (timestamp.count('-') >= 2):
-                embed["timestamp"] = timestamp
-        
+        # 构建消息（使用content字段，不使用embeds）
         message = {
-            "embeds": [embed]
+            "content": content
         }
         
         try:
             print(f"📤 正在发送到Discord: {title[:50]}...")
             print(f"   Webhook: {webhook_url[:50]}...")
-            
-            # 最终验证embed格式
-            if not embed.get("title") or not embed["title"].strip():
-                print("   ⚠️ 警告: Embed标题为空，使用默认值")
-                embed["title"] = "无标题"
-            
-            # 移除空的fields数组
-            if "fields" in embed and len(embed["fields"]) == 0:
-                del embed["fields"]
-            
-            # 验证embed结构（Discord要求至少有一个非空字段）
-            if not embed.get("title") and not embed.get("description") and not embed.get("fields"):
-                print("   ⚠️ 警告: Embed没有任何内容，添加默认描述")
-                embed["description"] = "无内容"
+            print(f"   消息长度: {len(content)} 字符")
             
             response = requests.post(webhook_url, json=message, timeout=10)
             print(f"   HTTP状态码: {response.status_code}")
@@ -527,33 +491,6 @@ class RSSMonitor:
             if hasattr(e, 'response') and e.response is not None:
                 print(f"   响应状态码: {e.response.status_code}")
                 print(f"   响应内容: {e.response.text[:500]}")
-                # 如果是400错误，尝试诊断问题
-                if e.response.status_code == 400:
-                    print("\n   可能的原因：")
-                    print("   1. Embed格式错误（检查字段值是否超过限制）")
-                    print("   2. 标题或描述包含无效字符")
-                    print("   3. timestamp格式不正确")
-                    print("   4. URL格式不正确")
-                    # 尝试打印embed内容用于调试（隐藏敏感信息）
-                    debug_embed = embed.copy()
-                    if "url" in debug_embed:
-                        debug_embed["url"] = debug_embed["url"][:50] + "..."
-                    print(f"   Embed内容预览: {str(debug_embed)[:200]}...")
-                    
-                    # 尝试发送简单文本消息作为备选
-                    print("\n   尝试发送简单文本消息作为备选...")
-                    try:
-                        simple_message = {
-                            "content": f"**{title[:2000]}**\n{link if link else ''}"
-                        }
-                        response2 = requests.post(webhook_url, json=simple_message, timeout=10)
-                        if response2.status_code in [200, 204]:
-                            print("   ✅ 简单文本消息发送成功（作为备选）")
-                            return True
-                        else:
-                            print(f"   ❌ 简单文本消息也失败: {response2.status_code}")
-                    except Exception as e2:
-                        print(f"   ❌ 发送简单文本消息失败: {e2}")
             return False
         except requests.exceptions.RequestException as e:
             print(f"❌ 网络请求失败: {e}")
