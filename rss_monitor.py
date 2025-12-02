@@ -422,52 +422,70 @@ class RSSMonitor:
             summary = re.sub(r'<[^>]+>', '', summary)
             summary = html.unescape(summary).strip()[:500]  # Discord限制2000字符，摘要限制500
         
-        # 处理timestamp格式（Discord需要ISO 8601格式）
+        # 处理timestamp格式（Discord需要严格的ISO 8601格式）
         timestamp = None
         if published:
-            # 检查是否是ISO 8601格式（包含T和时区信息）
-            if isinstance(published, str) and ('T' in published or ' ' in published):
-                # 尝试简单格式化
-                try:
-                    # 如果是feedparser解析的日期，可能已经是ISO格式
-                    # 只添加timestamp如果格式看起来正确
-                    if 'T' in published or (published.count('-') >= 2 and published.count(':') >= 2):
-                        timestamp = published
-                except:
-                    timestamp = None
+            try:
+                # feedparser返回的日期可能是各种格式，需要转换
+                # Discord要求ISO 8601格式，例如：2023-01-01T00:00:00.000Z
+                if isinstance(published, str):
+                    # 尝试解析feedparser的日期格式
+                    # feedparser通常返回类似 "Mon, 01 Jan 2023 00:00:00 +0000" 的格式
+                    from datetime import datetime as dt
+                    # 尝试解析常见格式
+                    try:
+                        # 尝试解析feedparser格式
+                        parsed_date = dt.strptime(published.split(' (')[0].split(' +')[0].split(' -')[0], 
+                                                 '%a, %d %b %Y %H:%M:%S')
+                        # 转换为ISO 8601格式（带Z表示UTC）
+                        timestamp = parsed_date.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+                    except:
+                        # 如果已经是ISO格式，直接使用
+                        if 'T' in published and ('Z' in published or '+' in published or published.count('-') >= 3):
+                            # 看起来像ISO格式
+                            timestamp = published
+                        else:
+                            # 格式不正确，不添加timestamp
+                            timestamp = None
+            except Exception as e:
+                # 解析失败，不添加timestamp
+                timestamp = None
         
-        # 构建Discord Embed消息
+        # 构建Discord Embed消息（严格按照Discord API规范）
         embed = {
-            "title": title,
+            "title": title[:256],  # 确保不超过256字符
             "color": 0x5865F2,  # Discord蓝色
             "footer": {
                 "text": (source_name if source_name else "RSS监控")[:2048]  # footer text限制2048字符
             }
         }
         
-        # 只添加非None的字段
-        if summary:
-            embed["description"] = summary[:2000]  # Discord限制2000字符
+        # 只添加非空且有效的字段
+        if summary and summary.strip():
+            # 确保description不超过2000字符
+            embed["description"] = summary[:2000]
         
-        if link:
-            # 验证URL格式
-            if link.startswith(('http://', 'https://')):
-                embed["url"] = link[:2048]  # URL限制2048字符
+        # URL字段：如果设置了url，就不能在fields中重复
+        # 为了更好的显示，我们只在fields中显示链接，不使用url字段
+        # （因为url字段会作为标题的链接，可能和fields中的链接重复）
         
-        if timestamp:
-            embed["timestamp"] = timestamp
-        
-        # 如果有链接，添加字段显示（但不在url字段中重复）
+        # 添加链接到fields（更清晰的显示）
         if link and link.startswith(('http://', 'https://')):
             # 确保field value不超过1024字符
             link_value = link[:1024]
             if "fields" not in embed:
                 embed["fields"] = []
             embed["fields"].append({
-                "name": "🔗 原文链接",
-                "value": link_value,
+                "name": "🔗 原文链接"[:256],  # field name限制256字符
+                "value": link_value[:1024],  # field value限制1024字符
                 "inline": False
             })
+        
+        # 只添加格式正确的timestamp
+        if timestamp and isinstance(timestamp, str) and len(timestamp) > 0:
+            # 验证timestamp格式（简单检查）
+            if 'T' in timestamp and (timestamp.count('-') >= 2):
+                embed["timestamp"] = timestamp
         
         message = {
             "embeds": [embed]
@@ -477,10 +495,19 @@ class RSSMonitor:
             print(f"📤 正在发送到Discord: {title[:50]}...")
             print(f"   Webhook: {webhook_url[:50]}...")
             
-            # 验证embed格式
-            if not embed.get("title"):
+            # 最终验证embed格式
+            if not embed.get("title") or not embed["title"].strip():
                 print("   ⚠️ 警告: Embed标题为空，使用默认值")
                 embed["title"] = "无标题"
+            
+            # 移除空的fields数组
+            if "fields" in embed and len(embed["fields"]) == 0:
+                del embed["fields"]
+            
+            # 验证embed结构（Discord要求至少有一个非空字段）
+            if not embed.get("title") and not embed.get("description") and not embed.get("fields"):
+                print("   ⚠️ 警告: Embed没有任何内容，添加默认描述")
+                embed["description"] = "无内容"
             
             response = requests.post(webhook_url, json=message, timeout=10)
             print(f"   HTTP状态码: {response.status_code}")
@@ -512,6 +539,21 @@ class RSSMonitor:
                     if "url" in debug_embed:
                         debug_embed["url"] = debug_embed["url"][:50] + "..."
                     print(f"   Embed内容预览: {str(debug_embed)[:200]}...")
+                    
+                    # 尝试发送简单文本消息作为备选
+                    print("\n   尝试发送简单文本消息作为备选...")
+                    try:
+                        simple_message = {
+                            "content": f"**{title[:2000]}**\n{link if link else ''}"
+                        }
+                        response2 = requests.post(webhook_url, json=simple_message, timeout=10)
+                        if response2.status_code in [200, 204]:
+                            print("   ✅ 简单文本消息发送成功（作为备选）")
+                            return True
+                        else:
+                            print(f"   ❌ 简单文本消息也失败: {response2.status_code}")
+                    except Exception as e2:
+                        print(f"   ❌ 发送简单文本消息失败: {e2}")
             return False
         except requests.exceptions.RequestException as e:
             print(f"❌ 网络请求失败: {e}")
