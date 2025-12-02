@@ -206,6 +206,79 @@ class RSSMonitor:
             traceback.print_exc()
             return []
     
+    def send_to_discord(self, article: Dict, source_name: str = ""):
+        """发送消息到Discord"""
+        webhook_url = self.config.get('discord_webhook')
+        if not webhook_url:
+            print("❌ 未配置Discord Webhook地址")
+            return False
+        
+        # 构建消息内容
+        title = article.get('title', '无标题')
+        link = article.get('link', '')
+        summary = article.get('summary', '')
+        published = article.get('published', '')
+        
+        # 清理摘要，移除HTML标签和特殊字符
+        if summary:
+            summary = re.sub(r'<[^>]+>', '', summary)
+            summary = html.unescape(summary).strip()[:500]  # Discord限制2000字符，摘要限制500
+        
+        # 构建Discord Embed消息
+        embed = {
+            "title": title[:256],  # Discord限制256字符
+            "description": summary if summary else None,
+            "url": link if link else None,
+            "color": 0x5865F2,  # Discord蓝色
+            "timestamp": published if published else None,
+            "footer": {
+                "text": source_name if source_name else "RSS监控"
+            }
+        }
+        
+        # 如果有链接，添加字段显示
+        if link:
+            embed["fields"] = [
+                {
+                    "name": "🔗 原文链接",
+                    "value": link,
+                    "inline": False
+                }
+            ]
+        
+        message = {
+            "embeds": [embed]
+        }
+        
+        try:
+            print(f"📤 正在发送到Discord: {title[:50]}...")
+            print(f"   Webhook: {webhook_url[:50]}...")
+            
+            response = requests.post(webhook_url, json=message, timeout=10)
+            print(f"   HTTP状态码: {response.status_code}")
+            
+            response.raise_for_status()
+            
+            # Discord成功返回204 No Content或200 OK
+            if response.status_code in [200, 204]:
+                print(f"✅ 推送成功: {title[:50]}...")
+                return True
+            else:
+                print(f"❌ 推送失败: HTTP {response.status_code}")
+                print(f"   响应内容: {response.text[:200]}")
+                return False
+        except requests.exceptions.RequestException as e:
+            print(f"❌ 网络请求失败: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"   响应状态码: {e.response.status_code}")
+                print(f"   响应内容: {e.response.text[:200]}")
+            return False
+        except Exception as e:
+            print(f"❌ 发送到Discord失败: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
+    
     def send_to_feishu(self, article: Dict, source_name: str = ""):
         """发送消息到飞书"""
         webhook_url = self.config.get('feishu_webhook')
@@ -329,6 +402,7 @@ class RSSMonitor:
         """检查RSS源并推送新文章"""
         # 验证配置
         print("\n📋 配置检查:")
+        print(f"   Discord Webhook: {'已配置' if self.config.get('discord_webhook') else '❌ 未配置'}")
         print(f"   飞书Webhook: {'已配置' if self.config.get('feishu_webhook') else '❌ 未配置'}")
         
         rss_sources = self.config.get('rss_sources', [])
@@ -367,8 +441,16 @@ class RSSMonitor:
                 if source_key not in self.state:
                     print(f"📬 发现新文章: {article['title'][:50]}...")
                     
-                    # 发送到飞书
-                    if self.send_to_feishu(article, name):
+                    # 发送到Discord（优先）或飞书
+                    success = False
+                    if self.config.get('discord_webhook'):
+                        success = self.send_to_discord(article, name)
+                    elif self.config.get('feishu_webhook'):
+                        success = self.send_to_feishu(article, name)
+                    else:
+                        print("   ⚠️ 未配置任何Webhook地址")
+                    
+                    if success:
                         # 记录已推送
                         self.state[source_key] = {
                             'title': article['title'],

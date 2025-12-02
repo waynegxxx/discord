@@ -1,13 +1,14 @@
 # RSS监控推送工具
 
-自动监控多个RSS源，当有新文章时自动推送到飞书群。
+自动监控多个RSS源，当有新文章时自动推送到Discord群或飞书群。
 
 ## 功能特点
 
 - ✅ 支持监控多个RSS源
 - ✅ 自动去重，避免重复推送
 - ✅ 支持本地运行和GitHub Actions自动运行
-- ✅ 美观的飞书消息卡片格式
+- ✅ 支持Discord和飞书两种推送方式
+- ✅ 美观的消息卡片格式
 - ✅ 自动保存推送状态
 
 ## 使用方法
@@ -25,7 +26,8 @@ pip install -r requirements.txt
 
 ```json
 {
-  "feishu_webhook": "你的飞书机器人Webhook地址",
+  "discord_webhook": "你的Discord机器人Webhook地址",
+  "feishu_webhook": "你的飞书机器人Webhook地址（可选）",
   "rss_sources": [
     {
       "name": "网站名称",
@@ -34,6 +36,8 @@ pip install -r requirements.txt
   ]
 }
 ```
+
+   **注意**：至少需要配置 `discord_webhook` 或 `feishu_webhook` 其中一个。如果两者都配置，优先使用Discord。
 
 3. **运行脚本**
 ```bash
@@ -54,7 +58,7 @@ python rss_monitor.py
    
    在GitHub仓库的 Settings → Secrets and variables → Actions 中添加：
    
-   - `FEISHU_WEBHOOK`: 你的飞书机器人Webhook地址
+   - `DISCORD_WEBHOOK`: 你的Discord机器人Webhook地址
    - `RSS_SOURCES`: RSS源配置（JSON格式），例如：
    ```json
    [
@@ -99,9 +103,16 @@ python rss_monitor.py
 - RSSHub Radar 浏览器扩展
 - 网站通常的RSS地址格式：`https://example.com/feed` 或 `https://example.com/rss`
 
+## 获取Discord Webhook地址
+
+1. 在Discord服务器中，进入 **服务器设置** → **集成** → **Webhooks**
+2. 点击 **新建Webhook** 或选择现有Webhook
+3. 复制Webhook URL（格式类似：`https://discord.com/api/webhooks/xxxxx/xxxxx`）
+
 ## 故障排查
 
-- 如果推送失败，检查飞书Webhook地址是否正确
+- 如果推送失败，检查Discord或飞书Webhook地址是否正确
 - 如果RSS解析失败，检查RSS链接是否可访问
 - 查看控制台输出的错误信息
+- Discord Webhook消息限制：标题最多256字符，描述最多2000字符
 

@@ -1,6 +1,6 @@
 # 将代码上传到 GitHub 仓库
 
-你的仓库地址：`https://github.com/waynegxxx/anying.git`
+你的仓库地址：`https://github.com/waynegxxx/discord.git`
 
 ## 步骤一：安装 Git（如果还没安装）
 
@@ -33,7 +33,7 @@ git add .
 git commit -m "初始提交：RSS监控推送工具"
 
 # 5. 添加远程仓库
-git remote add origin https://github.com/waynegxxx/anying.git
+git remote add origin https://github.com/waynegxxx/discord.git
 
 # 6. 设置主分支名称
 git branch -M main
@@ -64,21 +64,21 @@ git push -u origin main
 2. 登录GitHub账号
 3. File → Add Local Repository → 选择 `C:\Users\Administrator\Desktop\code`
 4. 点击 "Publish repository"
-5. 仓库名称会自动识别为 `anying`
+5. 仓库名称会自动识别为 `discord`
 
 ## 步骤三：设置GitHub Secrets（用于自动运行）
 
 代码上传后，需要设置Secrets才能让GitHub Actions自动运行：
 
-1. 访问：https://github.com/waynegxxx/anying/settings/secrets/actions
+1. 访问：https://github.com/waynegxxx/discord/settings/secrets/actions
 2. 点击 "New repository secret"
 3. 添加以下两个Secret：
 
-   **Secret 1:**
-   - Name: `FEISHU_WEBHOOK`
-   - Value: 你的飞书机器人Webhook地址
+   **Secret 1（必需）:**
+   - Name: `DISCORD_WEBHOOK`
+   - Value: 你的Discord机器人Webhook地址
 
-   **Secret 2:**
+   **Secret 2（必需）:**
    - Name: `RSS_SOURCES`
    - Value: JSON格式，例如：
    ```json
@@ -94,9 +94,13 @@ git push -u origin main
    ]
    ```
 
+   **Secret 3（可选）:**
+   - Name: `FEISHU_WEBHOOK`
+   - Value: 你的飞书机器人Webhook地址（如果也想推送到飞书）
+
 ## 验证上传成功
 
-访问 https://github.com/waynegxxx/anying 应该能看到：
+访问 https://github.com/waynegxxx/discord 应该能看到：
 - ✅ rss_monitor.py
 - ✅ config.example.json
 - ✅ .github/workflows/rss-monitor.yml
@@ -119,7 +123,7 @@ git push
 **Q: 提示 "remote origin already exists"？**
 ```powershell
 git remote remove origin
-git remote add origin https://github.com/waynegxxx/anying.git
+git remote add origin https://github.com/waynegxxx/discord.git
 ```
 
 **Q: 如何查看当前远程仓库？**
@@ -129,6 +133,6 @@ git remote -v
 
 **Q: 如何修改远程仓库地址？**
 ```powershell
-git remote set-url origin https://github.com/waynegxxx/anying.git
+git remote set-url origin https://github.com/waynegxxx/discord.git
 ```
 

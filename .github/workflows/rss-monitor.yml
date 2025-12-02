@@ -1,54 +1,47 @@
-name: RSS Monitor
+name: RSS监控推送
 
 on:
   schedule:
-    # 每30分钟运行一次（UTC时间）
+    # 每30分钟运行一次
     - cron: '*/30 * * * *'
   workflow_dispatch:  # 允许手动触发
 
 jobs:
   monitor:
     runs-on: ubuntu-latest
-    permissions:
-      contents: write  # 允许写入仓库
     
     steps:
     - name: 检出代码
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-    
+      uses: actions/checkout@v3
+      
     - name: 设置Python环境
       uses: actions/setup-python@v4
       with:
         python-version: '3.9'
-    
+        
     - name: 安装依赖
       run: |
         pip install -r requirements.txt
-    
-    - name: 运行RSS监控
+        
+    - name: 创建配置文件
       env:
-        FEISHU_WEBHOOK: ${{ secrets.FEISHU_WEBHOOK }}
+        DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
         RSS_SOURCES: ${{ secrets.RSS_SOURCES }}
       run: |
-        # 从GitHub Secrets创建配置文件
-        python create_config_from_secrets.py
-        python rss_monitor.py
-    
-    - name: 提交状态文件
+        cat > config.json << EOF
+        {
+          "discord_webhook": "$DISCORD_WEBHOOK",
+          "rss_sources": $RSS_SOURCES
+        }
+        EOF
+        
+    - name: 运行RSS监控
+      run: python rss_monitor.py
+      
+    - name: 提交状态文件（如果有更新）
       run: |
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
-        if [ -f rss_state.json ]; then
-          git add rss_state.json
-          if ! git diff --staged --quiet; then
-            git commit -m "Update RSS state [skip ci]"
-            git push origin main
-          else
-            echo "No changes to commit"
-          fi
-        else
-          echo "rss_state.json not found, skipping"
-        fi
-
+        git add rss_state.json
+        git diff --staged --quiet || git commit -m "更新RSS推送状态 [skip ci]"
+        git push || true
