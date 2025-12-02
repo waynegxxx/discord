@@ -811,6 +811,11 @@ class RSSMonitor:
             print(f"\n✨ 本次共推送 {new_count} 条新消息")
         else:
             print("\n✨ 暂无新消息（所有文章都已推送过）")
+            print("\n💡 提示：")
+            print("   - 首次运行会推送RSS源中的最新文章（最多10条）")
+            print("   - 之后只会推送新发布的文章")
+            print("   - 如果想重新推送所有文章，可以删除 rss_state.json 文件")
+            print("   - 如果RSS源有问题，会发送错误通知到Discord")
 
 
 def main():
