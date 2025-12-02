@@ -97,11 +97,47 @@ class RSSMonitor:
         feed = None
         original_feed = None
         
+        # 准备请求头
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/rss+xml, application/xml, text/xml, */*',
+            'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Cache-Control': 'no-cache'
+        }
+        
         try:
-            # 先尝试直接解析（feedparser会自动下载）
+            # 先尝试使用requests下载，然后解析（这样可以控制请求头）
             print(f"   正在获取RSS内容...")
-            feed = feedparser.parse(url)
-            original_feed = feed
+            try:
+                response = requests.get(url, headers=headers, timeout=(10, 30), allow_redirects=True)
+                response.raise_for_status()
+                
+                # 检查是否是RSSHub的403错误
+                if response.status_code == 403 and 'rsshub.app' in url:
+                    print(f"   ⚠️ RSSHub返回403错误，可能的原因：")
+                    print(f"      1. RSSHub公共实例有访问限制")
+                    print(f"      2. 该路由需要特殊权限或已失效")
+                    print(f"      3. 建议使用自建RSSHub实例或更换RSS源")
+                    print(f"      4. 可以尝试访问 https://rsshub.app 查看该路由是否可用")
+                    return []
+                
+                # 使用下载的内容解析
+                feed = feedparser.parse(response.content)
+                original_feed = feed
+            except requests.exceptions.HTTPError as http_error:
+                if http_error.response.status_code == 403:
+                    print(f"   ❌ 访问被拒绝 (403): {url}")
+                    if 'rsshub.app' in url:
+                        print(f"      RSSHub可能需要认证或该路由已失效")
+                    return []
+                raise
+            except requests.exceptions.RequestException as req_error:
+                # 如果requests失败，尝试使用feedparser直接解析
+                print(f"   ⚠️ 使用requests下载失败，尝试feedparser直接解析...")
+                feed = feedparser.parse(url)
+                original_feed = feed
             
             # 如果解析失败且有实体错误，尝试修复
             if feed.bozo and feed.bozo_exception:
@@ -118,10 +154,17 @@ class RSSMonitor:
                             response = requests.get(
                                 url, 
                                 timeout=(10, 60),  # (连接超时, 读取超时)
-                                headers={
-                                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                                }
+                                headers=headers,
+                                allow_redirects=True
                             )
+                            
+                            # 检查403错误
+                            if response.status_code == 403:
+                                print(f"   ❌ 访问被拒绝 (403)，无法修复")
+                                if 'rsshub.app' in url:
+                                    print(f"      RSSHub路由可能已失效或需要认证")
+                                break
+                            
                             response.raise_for_status()
                             xml_content = response.text
                             
@@ -146,6 +189,16 @@ class RSSMonitor:
                                 time.sleep(wait_time)
                             else:
                                 print(f"   ⚠️ 所有重试均超时，尝试使用原始解析结果")
+                        except requests.exceptions.HTTPError as http_error:
+                            if http_error.response.status_code == 403:
+                                print(f"   ❌ 访问被拒绝 (403)，无法修复")
+                                if 'rsshub.app' in url:
+                                    print(f"      RSSHub路由可能已失效或需要认证")
+                                break
+                            else:
+                                print(f"   ⚠️ 尝试 {attempt}/3 HTTP错误: {http_error}")
+                                if attempt < 3:
+                                    time.sleep(2)
                         except Exception as fix_error:
                             print(f"   ⚠️ 尝试 {attempt}/3 失败: {fix_error}")
                             if attempt < 3:
