@@ -124,10 +124,34 @@ python rss_monitor.py
 2. 点击 **新建Webhook** 或选择现有Webhook
 3. 复制Webhook URL（格式类似：`https://discord.com/api/webhooks/xxxxx/xxxxx`）
 
+## 测试Discord Webhook
+
+在配置完成后，可以使用测试脚本验证Webhook是否正常工作：
+
+```bash
+# 方法1：直接提供Webhook地址
+python test_discord.py "你的Discord Webhook地址"
+
+# 方法2：交互式输入
+python test_discord.py
+# 然后按提示输入Webhook地址
+```
+
+测试脚本会发送两条测试消息：
+1. 普通文本消息
+2. Embed格式消息（错误通知格式）
+
+如果两条消息都成功发送，说明Webhook配置正确。
+
 ## 故障排查
 
 - 如果推送失败，检查Discord或飞书Webhook地址是否正确
 - 如果RSS解析失败，检查RSS链接是否可访问
 - 查看控制台输出的错误信息
 - Discord Webhook消息限制：标题最多256字符，描述最多2000字符
+- **如果Discord没收到消息**：
+  1. 运行 `python test_discord.py` 测试Webhook是否正常
+  2. 检查GitHub Actions日志，查看是否有错误信息
+  3. 确认Discord Webhook地址在GitHub Secrets中配置正确
+  4. 检查Discord服务器中Webhook是否仍然有效
 

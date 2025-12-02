@@ -256,6 +256,14 @@ class RSSMonitor:
                     print(f"   错误详情: {error_detail}")
                 else:
                     print(f"⚠️ RSS源中没有文章条目")
+                    # 检查是否是Nitter源
+                    if 'nitter' in url.lower():
+                        print(f"   ℹ️ 这是Nitter源，可能的原因：")
+                        print(f"      1. 用户名不存在或已更改")
+                        print(f"      2. 用户没有推文")
+                        print(f"      3. 账户被保护或已注销")
+                        print(f"      4. Nitter实例无法获取该用户内容")
+                        print(f"      建议：在浏览器中访问 {url} 验证")
                 # 返回空列表，错误信息会在check_and_push中处理
                 return []
             
@@ -358,7 +366,9 @@ class RSSMonitor:
         
         try:
             print(f"📤 正在发送错误通知到Discord: {source_name}...")
+            print(f"   Webhook: {webhook_url[:50]}...")
             response = requests.post(webhook_url, json=message, timeout=10)
+            print(f"   HTTP状态码: {response.status_code}")
             response.raise_for_status()
             
             if response.status_code in [200, 204]:
@@ -366,9 +376,22 @@ class RSSMonitor:
                 return True
             else:
                 print(f"❌ 错误通知发送失败: HTTP {response.status_code}")
+                print(f"   响应内容: {response.text[:200]}")
                 return False
+        except requests.exceptions.RequestException as e:
+            print(f"❌ 发送错误通知失败: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"   响应状态码: {e.response.status_code}")
+                print(f"   响应内容: {e.response.text[:200]}")
+                print("\n可能的原因：")
+                print("   1. Discord Webhook地址格式错误")
+                print("   2. Webhook已失效或被删除")
+                print("   3. 网络连接问题")
+            return False
         except Exception as e:
             print(f"❌ 发送错误通知失败: {e}")
+            import traceback
+            traceback.print_exc()
             return False
     
     def send_to_discord(self, article: Dict, source_name: str = ""):
@@ -384,32 +407,67 @@ class RSSMonitor:
         summary = article.get('summary', '')
         published = article.get('published', '')
         
+        # 清理标题，移除可能导致问题的字符
+        if title:
+            # 移除HTML标签
+            title = re.sub(r'<[^>]+>', '', title)
+            title = html.unescape(title).strip()
+            # 限制长度并确保不为空
+            title = title[:256] if title else "无标题"
+        else:
+            title = "无标题"
+        
         # 清理摘要，移除HTML标签和特殊字符
         if summary:
             summary = re.sub(r'<[^>]+>', '', summary)
             summary = html.unescape(summary).strip()[:500]  # Discord限制2000字符，摘要限制500
         
+        # 处理timestamp格式（Discord需要ISO 8601格式）
+        timestamp = None
+        if published:
+            # 检查是否是ISO 8601格式（包含T和时区信息）
+            if isinstance(published, str) and ('T' in published or ' ' in published):
+                # 尝试简单格式化
+                try:
+                    # 如果是feedparser解析的日期，可能已经是ISO格式
+                    # 只添加timestamp如果格式看起来正确
+                    if 'T' in published or (published.count('-') >= 2 and published.count(':') >= 2):
+                        timestamp = published
+                except:
+                    timestamp = None
+        
         # 构建Discord Embed消息
         embed = {
-            "title": title[:256],  # Discord限制256字符
-            "description": summary if summary else None,
-            "url": link if link else None,
+            "title": title,
             "color": 0x5865F2,  # Discord蓝色
-            "timestamp": published if published else None,
             "footer": {
-                "text": source_name if source_name else "RSS监控"
+                "text": (source_name if source_name else "RSS监控")[:2048]  # footer text限制2048字符
             }
         }
         
-        # 如果有链接，添加字段显示
+        # 只添加非None的字段
+        if summary:
+            embed["description"] = summary[:2000]  # Discord限制2000字符
+        
         if link:
-            embed["fields"] = [
-                {
-                    "name": "🔗 原文链接",
-                    "value": link,
-                    "inline": False
-                }
-            ]
+            # 验证URL格式
+            if link.startswith(('http://', 'https://')):
+                embed["url"] = link[:2048]  # URL限制2048字符
+        
+        if timestamp:
+            embed["timestamp"] = timestamp
+        
+        # 如果有链接，添加字段显示（但不在url字段中重复）
+        if link and link.startswith(('http://', 'https://')):
+            # 确保field value不超过1024字符
+            link_value = link[:1024]
+            if "fields" not in embed:
+                embed["fields"] = []
+            embed["fields"].append({
+                "name": "🔗 原文链接",
+                "value": link_value,
+                "inline": False
+            })
         
         message = {
             "embeds": [embed]
@@ -418,6 +476,11 @@ class RSSMonitor:
         try:
             print(f"📤 正在发送到Discord: {title[:50]}...")
             print(f"   Webhook: {webhook_url[:50]}...")
+            
+            # 验证embed格式
+            if not embed.get("title"):
+                print("   ⚠️ 警告: Embed标题为空，使用默认值")
+                embed["title"] = "无标题"
             
             response = requests.post(webhook_url, json=message, timeout=10)
             print(f"   HTTP状态码: {response.status_code}")
@@ -432,6 +495,24 @@ class RSSMonitor:
                 print(f"❌ 推送失败: HTTP {response.status_code}")
                 print(f"   响应内容: {response.text[:200]}")
                 return False
+        except requests.exceptions.HTTPError as e:
+            print(f"❌ HTTP错误: {e}")
+            if hasattr(e, 'response') and e.response is not None:
+                print(f"   响应状态码: {e.response.status_code}")
+                print(f"   响应内容: {e.response.text[:500]}")
+                # 如果是400错误，尝试诊断问题
+                if e.response.status_code == 400:
+                    print("\n   可能的原因：")
+                    print("   1. Embed格式错误（检查字段值是否超过限制）")
+                    print("   2. 标题或描述包含无效字符")
+                    print("   3. timestamp格式不正确")
+                    print("   4. URL格式不正确")
+                    # 尝试打印embed内容用于调试（隐藏敏感信息）
+                    debug_embed = embed.copy()
+                    if "url" in debug_embed:
+                        debug_embed["url"] = debug_embed["url"][:50] + "..."
+                    print(f"   Embed内容预览: {str(debug_embed)[:200]}...")
+            return False
         except requests.exceptions.RequestException as e:
             print(f"❌ 网络请求失败: {e}")
             if hasattr(e, 'response') and e.response is not None:
@@ -621,6 +702,14 @@ class RSSMonitor:
                         error_message = "请求超时"
                     else:
                         error_type = 'error'
+                elif 'nitter' in url.lower():
+                    # Nitter特定错误
+                    error_message = "Nitter源返回空内容，可能用户名不存在或用户没有推文"
+                    error_type = 'warning'
+                    print(f"   ℹ️ Nitter源提示：")
+                    print(f"      - 检查用户名是否正确")
+                    print(f"      - 在浏览器中访问 {url} 验证")
+                    print(f"      - 尝试其他Nitter实例")
                 elif 'rsshub.app' in url:
                     # RSSHub特定错误
                     error_message = "RSSHub路由可能有问题"
