@@ -114,23 +114,53 @@ class RSSMonitor:
                 response = requests.get(url, headers=headers, timeout=(10, 30), allow_redirects=True)
                 response.raise_for_status()
                 
-                # 检查是否是RSSHub的403错误
-                if response.status_code == 403 and 'rsshub.app' in url:
-                    print(f"   ⚠️ RSSHub返回403错误，可能的原因：")
-                    print(f"      1. RSSHub公共实例有访问限制")
-                    print(f"      2. 该路由需要特殊权限或已失效")
-                    print(f"      3. 建议使用自建RSSHub实例或更换RSS源")
-                    print(f"      4. 可以尝试访问 https://rsshub.app 查看该路由是否可用")
-                    return []
+                # 检查是否是RSSHub的错误
+                if 'rsshub.app' in url:
+                    if response.status_code == 403:
+                        print(f"   ⚠️ RSSHub返回403错误，可能的原因：")
+                        print(f"      1. RSSHub公共实例有访问限制")
+                        print(f"      2. 该路由需要特殊权限或已失效")
+                        print(f"      3. 建议使用自建RSSHub实例或更换RSS源")
+                        print(f"      4. 可以尝试访问 https://rsshub.app 查看该路由是否可用")
+                        return []
+                    elif response.status_code == 404:
+                        print(f"   ❌ RSSHub返回404错误，路由不存在或格式错误")
+                        print(f"      当前路由: {url}")
+                        print(f"      可能的原因：")
+                        print(f"      1. 路由格式不正确（检查RSSHub文档）")
+                        print(f"      2. 路由已失效或已变更")
+                        print(f"      3. 用户名或参数错误")
+                        print(f"      解决建议：")
+                        print(f"      - 访问 https://docs.rsshub.app/ 查看正确的路由格式")
+                        print(f"      - 在浏览器中访问该路由验证是否可用")
+                        print(f"      - 检查路由参数是否正确")
+                        # 如果是Twitter路由，提供格式提示
+                        if '/twitter/' in url:
+                            print(f"      Twitter路由格式示例：")
+                            print(f"      - 用户推文: https://rsshub.app/twitter/user/用户名")
+                            print(f"      - 用户媒体: https://rsshub.app/twitter/media/用户名（可能不存在）")
+                            print(f"      - 列表: https://rsshub.app/twitter/list/列表ID")
+                        return []
                 
                 # 使用下载的内容解析
                 feed = feedparser.parse(response.content)
                 original_feed = feed
             except requests.exceptions.HTTPError as http_error:
-                if http_error.response.status_code == 403:
+                status_code = http_error.response.status_code if http_error.response else None
+                if status_code == 403:
                     print(f"   ❌ 访问被拒绝 (403): {url}")
                     if 'rsshub.app' in url:
                         print(f"      RSSHub可能需要认证或该路由已失效")
+                    return []
+                elif status_code == 404:
+                    print(f"   ❌ 路由不存在 (404): {url}")
+                    if 'rsshub.app' in url:
+                        print(f"      RSSHub路由可能格式错误或已失效")
+                        print(f"      建议：访问 https://docs.rsshub.app/ 查看正确的路由格式")
+                        # 如果是Twitter路由，提供格式提示
+                        if '/twitter/' in url:
+                            print(f"      Twitter路由正确格式：")
+                            print(f"      - https://rsshub.app/twitter/user/用户名")
                     return []
                 raise
             except requests.exceptions.RequestException as req_error:
@@ -219,10 +249,14 @@ class RSSMonitor:
             
             # 检查是否有文章（即使有错误也尝试提取）
             if not hasattr(feed, 'entries') or not feed.entries:
-                print(f"⚠️ RSS源中没有文章条目")
-                # 如果有错误信息，显示更多细节
+                error_detail = ""
                 if feed.bozo and feed.bozo_exception:
-                    print(f"   错误详情: {feed.bozo_exception}")
+                    error_detail = str(feed.bozo_exception)
+                    print(f"⚠️ RSS源中没有文章条目")
+                    print(f"   错误详情: {error_detail}")
+                else:
+                    print(f"⚠️ RSS源中没有文章条目")
+                # 返回空列表，错误信息会在check_and_push中处理
                 return []
             
             articles = []
@@ -251,13 +285,91 @@ class RSSMonitor:
             
             return articles
         except requests.exceptions.RequestException as e:
+            error_msg = str(e)
             print(f"❌ 获取RSS失败 ({url}): 网络请求错误 - {e}")
-            return []
+            # 如果是404错误，提供更详细的提示
+            if '404' in error_msg and 'rsshub.app' in url:
+                print(f"   提示：RSSHub路由可能不存在或格式错误")
+                print(f"   建议：访问 https://docs.rsshub.app/ 查看正确的路由格式")
+            # 抛出异常，让check_and_push捕获并发送错误通知
+            raise Exception(f"网络请求错误: {error_msg}")
         except Exception as e:
             print(f"❌ 获取RSS失败 ({url}): {e}")
             import traceback
             traceback.print_exc()
-            return []
+            # 抛出异常，让check_and_push捕获并发送错误通知
+            raise
+    
+    def send_error_to_discord(self, source_name: str, url: str, error_type: str, error_message: str = ""):
+        """发送错误/状态消息到Discord"""
+        webhook_url = self.config.get('discord_webhook')
+        if not webhook_url:
+            print("❌ 未配置Discord Webhook地址")
+            return False
+        
+        # 根据错误类型设置颜色和图标
+        error_colors = {
+            'error': 0xFF0000,      # 红色
+            'warning': 0xFFA500,   # 橙色
+            'info': 0x5865F2,      # Discord蓝色
+            'empty': 0x808080      # 灰色
+        }
+        
+        error_icons = {
+            'error': '❌',
+            'warning': '⚠️',
+            'info': 'ℹ️',
+            'empty': '📭'
+        }
+        
+        color = error_colors.get(error_type, 0xFF0000)
+        icon = error_icons.get(error_type, '❌')
+        
+        # 构建错误消息
+        title = f"{icon} RSS监控 - {source_name}"
+        description = f"**状态**: {error_type.upper()}\n"
+        
+        if error_message:
+            description += f"**错误信息**: {error_message[:500]}\n"
+        
+        description += f"**RSS源**: {url}"
+        
+        # 构建Discord Embed消息
+        embed = {
+            "title": title[:256],
+            "description": description[:2000],  # Discord限制2000字符
+            "color": color,
+            "timestamp": datetime.now().isoformat(),
+            "footer": {
+                "text": "RSS监控系统"
+            },
+            "fields": [
+                {
+                    "name": "🔗 RSS链接",
+                    "value": url[:1024],  # Discord字段值限制1024字符
+                    "inline": False
+                }
+            ]
+        }
+        
+        message = {
+            "embeds": [embed]
+        }
+        
+        try:
+            print(f"📤 正在发送错误通知到Discord: {source_name}...")
+            response = requests.post(webhook_url, json=message, timeout=10)
+            response.raise_for_status()
+            
+            if response.status_code in [200, 204]:
+                print(f"✅ 错误通知发送成功")
+                return True
+            else:
+                print(f"❌ 错误通知发送失败: HTTP {response.status_code}")
+                return False
+        except Exception as e:
+            print(f"❌ 发送错误通知失败: {e}")
+            return False
     
     def send_to_discord(self, article: Dict, source_name: str = ""):
         """发送消息到Discord"""
@@ -479,11 +591,54 @@ class RSSMonitor:
             
             print(f"\n🔍 检查RSS源: {name}")
             print(f"   URL: {url}")
-            articles = self.fetch_rss(url)
-            print(f"   获取到 {len(articles)} 篇文章")
             
+            # 捕获获取RSS时的错误信息
+            error_info = None
+            try:
+                articles = self.fetch_rss(url)
+                print(f"   获取到 {len(articles)} 篇文章")
+            except Exception as e:
+                error_info = str(e)
+                articles = []
+                print(f"   ❌ 获取RSS时发生异常: {e}")
+            
+            # 如果没有获取到文章，发送错误通知
             if not articles:
-                print("   ⚠️ 未获取到文章，可能RSS源有问题")
+                error_message = "未获取到文章"
+                error_type = 'warning'
+                
+                if error_info:
+                    error_message = f"获取失败: {error_info}"
+                    # 根据错误类型设置不同的错误级别
+                    if '404' in error_info:
+                        error_type = 'error'
+                        error_message = "路由不存在 (404)"
+                    elif '403' in error_info:
+                        error_type = 'error'
+                        error_message = "访问被拒绝 (403)"
+                    elif 'timeout' in error_info.lower() or '超时' in error_info:
+                        error_type = 'warning'
+                        error_message = "请求超时"
+                    else:
+                        error_type = 'error'
+                elif 'rsshub.app' in url:
+                    # RSSHub特定错误
+                    error_message = "RSSHub路由可能有问题"
+                    error_type = 'warning'
+                
+                # 发送错误通知到Discord
+                if self.config.get('discord_webhook'):
+                    self.send_error_to_discord(
+                        source_name=name,
+                        url=url,
+                        error_type=error_type,
+                        error_message=error_message
+                    )
+                elif self.config.get('feishu_webhook'):
+                    # 飞书也可以发送错误通知，但这里先只实现Discord
+                    pass
+                
+                print("   ⚠️ 未获取到文章，已发送错误通知")
                 continue
             
             for article in articles:

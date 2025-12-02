@@ -1,14 +1,22 @@
-# RSSHub 403错误故障排查
+# RSSHub 错误故障排查
 
 ## 问题现象
 
 当使用RSSHub的RSS源时，可能会遇到以下错误：
 
+### 403错误
 ```
 ⚠️ 尝试 1/3 失败: 403 Client Error: Forbidden for url: https://rsshub.app/36kr/newsflashes
 ```
 
+### 404错误
+```
+❌ 获取RSS失败: 404 Client Error: Not Found for url: https://rsshub.app/twitter/media/guxi0001
+```
+
 ## 原因分析
+
+### 403错误原因
 
 RSSHub返回403错误通常有以下几个原因：
 
@@ -30,9 +38,48 @@ RSSHub的公共实例（rsshub.app）可能对某些路由有访问限制：
 
 如果频繁访问同一个路由，可能会触发RSSHub的限流机制。
 
+### 404错误原因
+
+RSSHub返回404错误通常有以下几个原因：
+
+1. **路由格式错误**
+   - 路由路径不正确
+   - 参数格式错误
+   - 路由已变更或废弃
+
+2. **路由不存在**
+   - 该路由从未存在
+   - 路由已被移除
+   - 需要不同的路由格式
+
+3. **参数错误**
+   - 用户名或ID格式不正确
+   - 缺少必需参数
+   - 参数值无效
+
 ## 解决方案
 
-### 方案1：检查路由是否可用
+### 方案1：检查路由格式和可用性
+
+#### 对于404错误：
+
+1. **查看RSSHub文档**
+   - 访问：https://docs.rsshub.app/
+   - 搜索对应的平台（如Twitter）
+   - 查看正确的路由格式和参数
+
+2. **在浏览器中测试**
+   - 直接在浏览器中访问RSSHub路由
+   - 如果显示404，说明路由确实不存在或格式错误
+
+3. **检查路由参数**
+   - 确认用户名/ID格式是否正确
+   - 检查是否缺少必需参数
+   - 验证参数值是否有效
+
+#### 对于403错误：
+
+1. **检查路由是否可用**
 
 1. **在浏览器中访问RSSHub路由**
    - 直接访问：`https://rsshub.app/36kr/newsflashes`
@@ -91,6 +138,21 @@ RSSHub的公共实例（rsshub.app）可能对某些路由有访问限制：
 3. 等待维护者修复
 
 ## 常见RSSHub路由问题
+
+### Twitter相关路由
+
+**常见错误**：
+- `https://rsshub.app/twitter/media/用户名` - 404错误（路由可能不存在）
+
+**正确格式**：
+- ✅ `https://rsshub.app/twitter/user/用户名` - 用户推文
+- ✅ `https://rsshub.app/twitter/list/列表ID` - 列表推文
+- ✅ `https://rsshub.app/twitter/keyword/关键词` - 关键词搜索
+
+**注意事项**：
+- Twitter路由可能需要认证（自建RSSHub实例）
+- 某些路由在公共实例上可能不可用
+- 建议查看RSSHub文档确认路由格式
 
 ### 36kr相关路由
 
@@ -157,6 +219,50 @@ RSSHub的公共实例（rsshub.app）可能对某些路由有访问限制：
 - **RSSHub GitHub**：https://github.com/DIYgod/RSSHub
 - **RSSHub路由列表**：https://docs.rsshub.app/routes/
 - **RSSHub Issues**：https://github.com/DIYgod/RSSHub/issues
+
+## 示例：修复Twitter RSS源
+
+### 问题
+```
+❌ 获取RSS失败: 404 Client Error: Not Found for url: https://rsshub.app/twitter/media/guxi0001
+```
+
+### 原因分析
+
+`/twitter/media/` 路由可能不存在或格式不正确。RSSHub的Twitter路由格式通常是：
+- `/twitter/user/用户名` - 用户推文
+- `/twitter/list/列表ID` - 列表推文
+- `/twitter/keyword/关键词` - 关键词搜索
+
+### 解决步骤
+
+1. **检查路由格式**
+   - 访问RSSHub文档：https://docs.rsshub.app/routes/social-media#twitter
+   - 查看正确的Twitter路由格式
+
+2. **尝试正确的路由格式**
+   - 错误：`https://rsshub.app/twitter/media/guxi0001`
+   - 正确：`https://rsshub.app/twitter/user/guxi0001`
+
+3. **在浏览器中测试**
+   - 访问：https://rsshub.app/twitter/user/guxi0001
+   - 如果显示404，可能是：
+     - 用户名不存在
+     - 路由需要认证（需要自建RSSHub实例）
+     - 公共实例不支持该路由
+
+4. **更新配置**
+   ```json
+   {
+     "name": "Twitter - guxi0001",
+     "url": "https://rsshub.app/twitter/user/guxi0001"
+   }
+   ```
+
+5. **如果仍然404**
+   - Twitter路由可能需要认证
+   - 考虑使用自建RSSHub实例
+   - 或使用其他Twitter RSS服务
 
 ## 示例：修复36kr RSS源
 
